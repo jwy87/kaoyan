@@ -7,3 +7,5 @@
 - **专属祝福**：输入昵称与目标院校，生成一句短而鼓励的祝福。
 - **匿名模式**：跳过填写也能直接获得祝福。
 - **祝福墙**：可展示/提交祝福内容。
+
+<img width="2510" height="1377" alt="image" src="https://github.com/user-attachments/assets/4e805af3-c133-437f-b478-c4c3e561bb81" />
