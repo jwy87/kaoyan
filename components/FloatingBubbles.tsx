@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BubbleMessage, UserInfo } from '../types';
 import { INITIAL_MESSAGES, PERSONALIZED_TEMPLATES, BUBBLE_COLORS } from '../constants';
@@ -14,21 +14,87 @@ interface FloatingBubblesProps {
 
 const FloatingBubbles: React.FC<FloatingBubblesProps> = ({ userInfo, customMessages, localHighlightText, localHighlightNonce }) => {
   const [bubbles, setBubbles] = useState<BubbleMessage[]>([]);
+  const recentTextsRef = useRef<string[]>([]);
+
+  const getUniqueCustomCount = () => {
+    const unique = new Set(
+      customMessages
+        .map((t) => t.trim())
+        .filter(Boolean)
+    );
+    return unique.size;
+  };
+
+  const computeCustomProbability = (uniqueCustomCount: number) => {
+    // Goal (when DB is sufficiently populated & user not anonymous):
+    // personalized ~25%, DB ~50%, built-in ~25%
+    // With personalizedProbability=0.25, we want DB to be 50% overall,
+    // so inside the non-personalized branch we target 2/3 for DB.
+    const base = 2 / 3;
+
+    // When DB has only a few unique messages, reduce its selection probability
+    // to avoid obvious repeats.
+    const min = 0.25;
+    const rampStart = 6;  // <= this many unique DB msgs: use min
+    const rampEnd = 18;   // >= this many unique DB msgs: use base
+
+    if (uniqueCustomCount <= 0) return 0;
+    if (uniqueCustomCount < rampStart) return min;
+    if (uniqueCustomCount >= rampEnd) return base;
+
+    const t = (uniqueCustomCount - rampStart) / (rampEnd - rampStart);
+    return min + (base - min) * t;
+  };
+
+  const rememberText = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const maxRecent = 8;
+    const next = [...recentTextsRef.current, trimmed];
+    recentTextsRef.current = next.slice(Math.max(0, next.length - maxRecent));
+  };
+
+  const pickNonRepeating = (pool: string[]) => {
+    if (pool.length === 0) return '';
+
+    const recentSet = new Set(recentTextsRef.current);
+    const candidates = pool.filter((t) => !recentSet.has(t.trim()));
+    const source = candidates.length > 0 ? candidates : pool;
+    return source[Math.floor(Math.random() * source.length)] ?? '';
+  };
 
   const createBubble = useCallback((overrides?: Partial<BubbleMessage>): BubbleMessage => {
     const id = Math.random().toString(36).substr(2, 9);
     const color = BUBBLE_COLORS[Math.floor(Math.random() * BUBBLE_COLORS.length)];
-    
-    // Combine initial messages with any custom ones
-    const messagePool = [...INITIAL_MESSAGES, ...customMessages];
-    let text = messagePool[Math.floor(Math.random() * messagePool.length)];
 
-    // 40% chance to generate a personalized message if user info exists and is not anonymous
-    const canPersonalize = userInfo && !userInfo.isAnonymous;
-    if (canPersonalize && Math.random() < 0.4) {
-      const template = PERSONALIZED_TEMPLATES[Math.floor(Math.random() * PERSONALIZED_TEMPLATES.length)];
-      text = template.replace("{name}", userInfo.name).replace("{school}", userInfo.school);
+    // If caller provides explicit text (e.g. local highlight), respect it.
+    let text = overrides?.text ?? '';
+
+    if (!text) {
+      // Chance to generate a personalized message if user info exists and is not anonymous.
+      // Note: This competes with DB blessings; keep it low if you want DB bubbles to dominate.
+      const canPersonalize = userInfo && !userInfo.isAnonymous;
+      // Target mix (when DB has data & user is not anonymous):
+      // - personalized ~25%
+      // - DB ~50%
+      // - built-in ~25%
+      const personalizedProbability = 0.25;
+      if (canPersonalize && Math.random() < personalizedProbability) {
+        const template = PERSONALIZED_TEMPLATES[Math.floor(Math.random() * PERSONALIZED_TEMPLATES.length)];
+        text = template.replace("{name}", userInfo.name).replace("{school}", userInfo.school);
+      } else {
+        // Stable ratio between DB blessings and built-in blessings (independent of array sizes)
+        const hasCustom = customMessages.length > 0;
+        // Auto-adjust when DB has few unique messages to reduce repetition.
+        const uniqueCustomCount = hasCustom ? getUniqueCustomCount() : 0;
+        const customProbability = computeCustomProbability(uniqueCustomCount);
+        const useCustom = hasCustom && Math.random() < customProbability;
+        const pool = useCustom ? customMessages : INITIAL_MESSAGES;
+        text = pickNonRepeating(pool);
+      }
     }
+
+    rememberText(text);
 
     return {
       id,

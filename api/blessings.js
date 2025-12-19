@@ -35,7 +35,13 @@ export default async function handler(req, res) {
       if (!pool) return res.status(200).json([]);
       await ensureDb(pool);
       const [rows] = await pool.query(
-        'SELECT content FROM blessings ORDER BY created_at DESC LIMIT 100'
+        `
+        SELECT content, MAX(created_at) AS latest
+        FROM blessings
+        GROUP BY content
+        ORDER BY latest DESC
+        LIMIT 100
+        `
       );
       return res.status(200).json(rows.map((row) => row.content));
     }
