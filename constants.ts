@@ -76,7 +76,7 @@ export const BUBBLE_COLORS = [
 export const MUSIC_URL = "/1.mp3";
 
 // GitHub link shown next to the music button (change to your repo URL if needed).
-export const GITHUB_URL = "https://github.com/";
+export const GITHUB_URL = "https://github.com/jwy87/kaoyan";
 
 export const GEMINI_PROMPT_TEMPLATE = `
 You are a warm, encouraging assistant. The Chinese Graduate Entrance Exam (Kaoyan) is approaching.
