@@ -25,25 +25,32 @@ const FloatingBubbles: React.FC<FloatingBubblesProps> = ({ userInfo, customMessa
     return unique.size;
   };
 
-  const computeCustomProbability = (uniqueCustomCount: number) => {
-    // Goal (when DB is sufficiently populated & user not anonymous):
-    // personalized ~25%, DB ~50%, built-in ~25%
-    // With personalizedProbability=0.25, we want DB to be 50% overall,
-    // so inside the non-personalized branch we target 2/3 for DB.
-    const base = 2 / 3;
+  const computeMix = (uniqueCustomCount: number, canPersonalize: boolean) => {
+    // Targets are "overall" (among the 3 sources):
+    // - if uniqueCustomCount < 10:   DB ~10%, personalized ~45%, built-in ~45%
+    // - if 10 <= uniqueCustomCount < 30: each ~33%
+    // - if uniqueCustomCount >= 30: DB ~50%, personalized ~25%, built-in ~25%
+    // When there's no personalized (anonymous), we interpret targets as DB share only.
 
-    // When DB has only a few unique messages, reduce its selection probability
-    // to avoid obvious repeats.
-    const min = 0.25;
-    const rampStart = 6;  // <= this many unique DB msgs: use min
-    const rampEnd = 18;   // >= this many unique DB msgs: use base
+    if (uniqueCustomCount <= 0) {
+      return {
+        personalizedProbability: canPersonalize ? 0.25 : 0,
+        dbProbabilityOverall: 0,
+      };
+    }
 
-    if (uniqueCustomCount <= 0) return 0;
-    if (uniqueCustomCount < rampStart) return min;
-    if (uniqueCustomCount >= rampEnd) return base;
+    if (!canPersonalize) {
+      const dbProbabilityOverall = uniqueCustomCount < 10 ? 0.10 : uniqueCustomCount < 30 ? 0.33 : 0.50;
+      return { personalizedProbability: 0, dbProbabilityOverall };
+    }
 
-    const t = (uniqueCustomCount - rampStart) / (rampEnd - rampStart);
-    return min + (base - min) * t;
+    if (uniqueCustomCount < 10) {
+      return { personalizedProbability: 0.45, dbProbabilityOverall: 0.10 };
+    }
+    if (uniqueCustomCount < 30) {
+      return { personalizedProbability: 1 / 3, dbProbabilityOverall: 1 / 3 };
+    }
+    return { personalizedProbability: 0.25, dbProbabilityOverall: 0.50 };
   };
 
   const rememberText = (text: string) => {
@@ -74,21 +81,21 @@ const FloatingBubbles: React.FC<FloatingBubblesProps> = ({ userInfo, customMessa
       // Chance to generate a personalized message if user info exists and is not anonymous.
       // Note: This competes with DB blessings; keep it low if you want DB bubbles to dominate.
       const canPersonalize = userInfo && !userInfo.isAnonymous;
-      // Target mix (when DB has data & user is not anonymous):
-      // - personalized ~25%
-      // - DB ~50%
-      // - built-in ~25%
-      const personalizedProbability = 0.25;
+      // Piecewise mix based on how many unique DB blessings we have.
+      const uniqueCustomCount = getUniqueCustomCount();
+      const { personalizedProbability, dbProbabilityOverall } = computeMix(uniqueCustomCount, Boolean(canPersonalize));
       if (canPersonalize && Math.random() < personalizedProbability) {
         const template = PERSONALIZED_TEMPLATES[Math.floor(Math.random() * PERSONALIZED_TEMPLATES.length)];
         text = template.replace("{name}", userInfo.name).replace("{school}", userInfo.school);
       } else {
         // Stable ratio between DB blessings and built-in blessings (independent of array sizes)
         const hasCustom = customMessages.length > 0;
-        // Auto-adjust when DB has few unique messages to reduce repetition.
-        const uniqueCustomCount = hasCustom ? getUniqueCustomCount() : 0;
-        const customProbability = computeCustomProbability(uniqueCustomCount);
-        const useCustom = hasCustom && Math.random() < customProbability;
+        // Convert overall DB target into the probability inside the non-personalized branch.
+        // DB_overall = (1 - personalizedProbability) * DB_inside
+        const dbInside = (1 - personalizedProbability) > 0
+          ? dbProbabilityOverall / (1 - personalizedProbability)
+          : 0;
+        const useCustom = hasCustom && Math.random() < dbInside;
         const pool = useCustom ? customMessages : INITIAL_MESSAGES;
         text = pickNonRepeating(pool);
       }
