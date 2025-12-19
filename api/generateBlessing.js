@@ -33,11 +33,24 @@ const resolveChatCompletionsUrl = (baseUrl) => {
   return `${trimmed}/v1/chat/completions`;
 };
 
-export default async function handler(req, res) {
+const json = (statusCode, data, extraHeaders = {}) => ({
+  statusCode,
+  headers: {
+    'Content-Type': 'application/json',
+    ...extraHeaders,
+  },
+  body: JSON.stringify(data),
+});
+
+export async function handler(event) {
   try {
-    if (req.method !== 'POST') {
-      res.setHeader('Allow', 'POST');
-      return res.status(405).json({ error: 'Method Not Allowed' });
+    const method = event?.httpMethod || 'GET';
+    if (method !== 'POST') {
+      return json(
+        405,
+        { error: 'Method Not Allowed' },
+        { Allow: 'POST' }
+      );
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -45,10 +58,17 @@ export default async function handler(req, res) {
     const model = process.env.OPENAI_MODEL;
 
     if (!apiKey || !baseUrl || !model) {
-      return res.status(200).json({ text: getRandomFallback(), fallback: true });
+      return json(200, { text: getRandomFallback(), fallback: true });
     }
 
-    const userInfo = req.body?.userInfo;
+    let parsedBody = null;
+    try {
+      parsedBody = event?.body ? JSON.parse(event.body) : null;
+    } catch {
+      return json(400, { error: 'Invalid JSON body' });
+    }
+
+    const userInfo = parsedBody?.userInfo;
     const name = typeof userInfo?.name === 'string' ? userInfo.name : '考生';
     const school = typeof userInfo?.school === 'string' ? userInfo.school : '理想院校';
 
@@ -69,14 +89,14 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      return res.status(200).json({ text: getRandomFallback(), fallback: true });
+      return json(200, { text: getRandomFallback(), fallback: true });
     }
 
     const data = await response.json();
     const text = data?.choices?.[0]?.message?.content;
     const finalText = (typeof text === 'string' ? text.trim() : '') || getRandomFallback();
-    return res.status(200).json({ text: finalText, fallback: false });
+    return json(200, { text: finalText, fallback: false });
   } catch (e) {
-    return res.status(200).json({ text: getRandomFallback(), fallback: true });
+    return json(200, { text: getRandomFallback(), fallback: true });
   }
 }

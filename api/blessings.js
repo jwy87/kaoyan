@@ -27,12 +27,22 @@ async function ensureDb(pool) {
   dbReady = true;
 }
 
-export default async function handler(req, res) {
+const json = (statusCode, data, extraHeaders = {}) => ({
+  statusCode,
+  headers: {
+    'Content-Type': 'application/json',
+    ...extraHeaders,
+  },
+  body: JSON.stringify(data),
+});
+
+export async function handler(event) {
   try {
     const pool = getPool();
+    const method = event?.httpMethod || 'GET';
 
-    if (req.method === 'GET') {
-      if (!pool) return res.status(200).json([]);
+    if (method === 'GET') {
+      if (!pool) return json(200, []);
       await ensureDb(pool);
       const [rows] = await pool.query(
         `
@@ -43,13 +53,23 @@ export default async function handler(req, res) {
         LIMIT 100
         `
       );
-      return res.status(200).json(rows.map((row) => row.content));
+      return json(
+        200,
+        rows.map((row) => row.content)
+      );
     }
 
-    if (req.method === 'POST') {
-      const content = req.body?.content;
+    if (method === 'POST') {
+      let parsedBody = null;
+      try {
+        parsedBody = event?.body ? JSON.parse(event.body) : null;
+      } catch {
+        return json(400, { error: 'Invalid JSON body' });
+      }
+
+      const content = parsedBody?.content;
       if (!content || typeof content !== 'string' || content.length > 50) {
-        return res.status(400).json({ error: 'Invalid content' });
+        return json(400, { error: 'Invalid content' });
       }
 
       if (pool) {
@@ -57,13 +77,17 @@ export default async function handler(req, res) {
         await pool.query('INSERT INTO blessings (content) VALUES (?)', [content]);
       }
 
-      return res.status(201).json({ message: 'Blessing saved' });
+      return json(201, { message: 'Blessing saved' });
     }
 
-    res.setHeader('Allow', 'GET, POST');
-    return res.status(405).json({ error: 'Method Not Allowed' });
+    return json(
+      405,
+      { error: 'Method Not Allowed' },
+      { Allow: 'GET, POST' }
+    );
   } catch (error) {
     console.error('API error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return json(500, { error: 'Internal Server Error' });
   }
 }
+

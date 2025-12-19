@@ -1,9 +1,15 @@
-export default async function handler(req, res) {
+export async function handler() {
   // Minimal env diagnostics endpoint (do NOT return secret values).
   const databaseUrlSet = Boolean(process.env.DATABASE_URL);
 
-  return res.status(200).json({
-    ok: true,
-    databaseUrlSet,
-  });
+  return {
+    statusCode: 200,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      ok: true,
+      databaseUrlSet,
+    }),
+  };
 }
