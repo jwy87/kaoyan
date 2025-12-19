@@ -5,7 +5,10 @@ let dbReady = false;
 
 function getPool() {
   const url = process.env.DATABASE_URL;
-  if (!url) return null;
+  if (!url) {
+    console.warn('DATABASE_URL is missing; blessings API will run without DB.');
+    return null;
+  }
   if (!pool) {
     pool = mysql.createPool(url);
   }
